@@ -228,7 +228,7 @@ impl<W> RbWriter<W> where
             // Write to the stream
             let mut sz = 0;
             sz += self.write_byte(T_SYMBOL)?;
-            sz += self.write_len_bytes(&sym.data)?;
+            sz += self.write_len_bytes(sym.as_bytes())?;
             Ok(sz)
         }
     }
@@ -329,4 +329,11 @@ impl<W> RbWriter<W> where
         self.dst.write_all(&buf)?;
         Ok(1)
     }
+}
+
+/// Serialize an `RbAny` to an IO stream.
+/// 
+pub fn to_writer<W: io::Write>(dst: W, value: &RbAny) -> TResult<usize> {
+    let mut wr = RbWriter::new(dst);
+    wr.write(value)
 }

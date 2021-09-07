@@ -1,11 +1,52 @@
-
+//! Thurgood implements (de)serialization for Ruby's Marshal format.
+//! 
+//! Thurgood implements a full model for Ruby's Marshal format and fully supports round-tripping data,
+//! with a few minor exceptions (see Errata below). Thurgood uses reference-counting to reduce memory
+//! usage with large data sets and to ensure that object references can be properly represented during
+//! deserialization and serialization.
+//! 
+//! Thurgood places an emphasis on the use-case of loading some data, manipulating parts of it, then serializing
+//! it back to the Marshal format. Generating your own Ruby data from scratch is supported, but it's not
+//! the primary use-case.
+//! 
+//! # Examples
+//! Load a binary string, convert it to JSON, and pretty-print it (this requires the "json" feature).
+//! ```rust
+//! fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     use thurgood::rc::{from_reader, RbAny, Error};
+//! 
+//!     let inp = concat!("\x04\x08[\x07o:\x08Foo\x07:\n@nameI\"\tJack\x06:\x06ET:",
+//!         "\t@agei\x1Eo;\x00\x07;\x06I\"\tJane\x06;\x07T;\x08i\x1D");
+//!     let value_ruby = from_reader( inp.as_bytes() ).expect("Parsing failed");
+//!     let value_json = value_ruby.to_json().unwrap();
+//!     println!("{}", serde_json::to_string_pretty( &value_json )?);
+//!     Ok(())
+//! }
+//! ```
+//! 
+//! # `Rc` vs `Arc`
+//! To support both single and multi-threaded uses Thurgood provides two implementations. They're
+//! identical except for one using `Rc` and the other using `Arc` for all internal refernce-counting.
+//! There are NO `RefMut`, `RwLock`, or `Mutex` in the code. If you want to mutate an object
+//! use `Rc::get_mut`, `Rc::make_mut`, or the equivalent `Arc` functions. 
+//! 
+//! ## Errata
+//! * Floats are stored as strings, however due to the way the spec is written, they may be either
+//!   length-terminated OR NULL-terminated. Thurgood can parse either, but will only produce
+//!   length-terminated floats.
+//! * Standard Ruby strings are encoded as an `Instance` containing a string and one field: `:E => true`,
+//!   Or as just a raw string. Thurgood assumes ALL instance strings with `:E => true` are UTF-8 strings
+//!   and will ignore extra instance fields. In practice this shouldn't be an issue, and any string
+//!   with a non-standard encoding is stored appropriately, but this is a potential source of difference
+//!   when trying to round-trip data.
+//! 
 pub mod consts;
 pub mod error;
 mod rb_type;
 pub use rb_type::RbType;
 pub use error::{ThurgoodError, TResult};
 
-// Uncomment to get IDE help, re-comment for build/release/push.
+// Uncomment to get JetBrains IDE help, re-comment for build/release/push. (https://github.com/intellij-rust/intellij-rust/issues/4265)
 // pub use std::rc::Rc as RcType; pub mod inner;
 
 pub mod rc {
@@ -15,6 +56,7 @@ pub mod rc {
     pub use inner::*;
 }
 
+#[cfg(not(doctest))]
 pub mod arc {
     pub use std::sync::Arc as RcType;
     #[path="../inner/mod.rs"]
@@ -31,13 +73,13 @@ mod tests {
 
     /// Parse a string into an `RbAny`
     fn reader_parse(s: &str) -> RbAny {
-        RbReader::new(io::Cursor::new(s.as_bytes())).read().expect("Parsing error")
+        from_reader(io::Cursor::new(s.as_bytes())).expect("Parsing error")
     }
 
     /// Writes `value` to a `Vec<u8>` and returns it.
     fn writer_write(value: &RbAny) -> Vec<u8> {
         let mut buf = Vec::new();
-        RbWriter::new(&mut buf).write(value).expect("Writing error");
+        to_writer(&mut buf, value).expect("Writing error");
         buf
     }
 

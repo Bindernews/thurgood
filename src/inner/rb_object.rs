@@ -9,6 +9,12 @@ use crate::{
 #[cfg(feature = "json")]
 use serde_json::{Value, Map};
 
+/// A Ruby Object (or Struct) that has a type name and a set of fields, this is a serialized
+/// instance of a class.
+/// 
+/// This is one of the most common data types, and as such it should be fairly ergonomic to use.
+/// Fields are serialized in the order they are added to the object to ensure proper round-tripping.
+/// 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct RbObject {
     /// Type name of the Object
@@ -17,10 +23,12 @@ pub struct RbObject {
     pub fields: IndexMap<RbSymbol, RbAny>,
 }
 impl RbObject {
+    /// Construct a new `RbObject` with no fields.
     pub fn new(name: &RbSymbol) -> Self {
         Self { name: name.clone(), fields: IndexMap::new() }
     }
 
+    /// Construct a new Object with the given name and fields.
     pub fn new_from_slice<N, K>(name: N, items: &[(K, RbAny)]) -> Self
     where
         N: Into<RbSymbol>,
@@ -98,6 +106,7 @@ impl RbObject {
         RbRef::Struct(self)
     }
 
+    /// Return a new JSON object representing this object.
     #[cfg(feature = "json")]
     pub fn to_json(&self) -> Option<Value> {
         use super::helper::json::JsonMapExt;

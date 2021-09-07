@@ -12,6 +12,8 @@ macro_rules! match_opt {
     };
 }
 
+/// Represents any valid Ruby value.
+/// 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum RbAny {
     Int(i32),
@@ -22,17 +24,13 @@ pub enum RbAny {
     Ref(RcType<RbRef>),
 }
 impl RbAny {
+    /// Construct a new `RbSymbol` from the given string and return it wrapped in an `RbAny`.
     pub fn symbol_from(name: &str) -> RbAny {
         let bytes = Vec::from(name.as_bytes());
         RbAny::Symbol(RbSymbol::new(bytes))
     }
 
-    pub fn get_bool(&self) -> Option<bool> {
-        if self == &RbAny::True { return Some(true); }
-        if self == &RbAny::False { return Some(false); }
-        return None;
-    }
-
+    /// Returns the generic type of the Ruby object.
     pub fn get_type(&self) -> RbType {
         match self {
             RbAny::Int(_) => RbType::Int,
@@ -43,29 +41,17 @@ impl RbAny {
         }
     }
 
-    #[cfg(feature = "json")]
-    pub fn to_json(&self) -> Option<Value> {
-        let r = match &self {
-            Self::Int(v) => Value::from(*v),
-            Self::True => Value::Bool(true),
-            Self::False => Value::Bool(false),
-            Self::Nil => Value::Null,
-            Self::Symbol(sym) => Value::String(sym.as_str()?.to_owned()),
-            Self::Ref(r) => r.to_json()?,
-        };
-        Some(r)
-    }
-}
-
-impl RbAny {
+    /// Returns true if this RbAny is Nil.
     pub fn is_nil(&self) -> bool {
         match self { Self::Nil => true, _ => false }
     }
 
+    /// If `Any` is an int, returns the value, otherwise returns None.
     pub fn as_int(&self) -> Option<i32> {
         match_opt!(self { RbAny::Int(v) => *v })
     }
 
+    /// If `Any` is a boolean, returns the value, otherwise returns None.
     pub fn as_bool(&self) -> Option<bool> {
         match self {
             RbAny::True => Some(true),
@@ -74,13 +60,17 @@ impl RbAny {
         }
     }
 
+    /// If `Any` is a Symbol, returns the symbol, otherwise returns None.
     pub fn as_symbol(&self) -> Option<&RbSymbol> {
         match self { Self::Symbol(r) => Some(r), _ => None }
     }
 
+    /// If `Any` is an object reference, returns a reference to it `RbRef`, otherwise returns None.
     pub fn as_rbref(&self) -> Option<&RbRef> {
         match self { RbAny::Ref(ref r) => Some(r), _ => None }
     }
+
+    /// If `Any` is an object reference, returns a mutable reference to it, otherwise returns None.
     pub fn as_rbref_mut(&mut self) -> Option<&mut RbRef> {
         match self { RbAny::Ref(ref mut r) => RcType::get_mut(r), _ => None }
     }
@@ -115,6 +105,20 @@ impl RbAny {
             current = current.as_rbref()?.get_child(key)?;
         }
         Some(current)
+    }
+
+    /// Returns a JSON value representing this Any, or None if the conversion failed.
+    #[cfg(feature = "json")]
+    pub fn to_json(&self) -> Option<Value> {
+        let r = match &self {
+            Self::Int(v) => Value::from(*v),
+            Self::True => Value::Bool(true),
+            Self::False => Value::Bool(false),
+            Self::Nil => Value::Null,
+            Self::Symbol(sym) => Value::String(sym.as_str()?.to_owned()),
+            Self::Ref(r) => r.to_json()?,
+        };
+        Some(r)
     }
 }
 

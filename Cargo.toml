@@ -2,6 +2,14 @@
 name = "thurgood"
 version = "0.1.0"
 edition = "2018"
+description = "Full (de)serialization support for Ruby's Marshal format"
+authors = ["Binder News"]
+readme = "README.md"
+homepage = "https://github.com/bindernews/thurgood"
+repository = "https://github.com/bindernews/thurgood"
+license = "MIT OR Apache-2.0"
+keywords = ["ruby", "marshal", "serialization"]
+categories = ["encoding"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

@@ -11,15 +11,15 @@ pub enum ThurgoodError {
     ParseFloat(#[from] std::num::ParseFloatError),
     #[error("Invalid Marshal version")]
     Version(String),
-    #[error("Bad symbol reference number {0}")]
+    #[error("Invalid symbol reference number {0}")]
     BadSymbolRef(usize),
     #[error("Invalid object reference number {0}")]
     BadObjectRef(usize),
-    #[error("Bad instance type")]
+    #[error("Invalid instance type")]
     BadInstanceType(char),
     #[error("Unexpected Ruby type")]
     UnexpectedType { expected: RbType, found: RbType },
-    #[error("Bad type byte")]
+    #[error("Unknown type byte")]
     BadTypeByte(u8),
 }
 

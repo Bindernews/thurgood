@@ -4,32 +4,47 @@ use super::{RbAny, RcType};
 #[cfg(feature = "json")]
 use serde_json::{Value, Map};
 
-/// A Symbol (e.g. :key, :value). Symbols that are the same will usually share data
-/// for memory-efficiency.
+/// A Ruby Symbol (e.g. :key, :value).
+/// 
+/// Symbols are very common, and often re-used. Thus multiple `RbSymbol`s may share their
+/// data internally. Calling `clone()` is cheap.
+/// 
+/// Most `Symbol`s will be a UTF-8 string, however the Ruby specification places no definite
+/// bounds, meaning that 
 #[derive(Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RbSymbol {
     /// Raw data representing the symbol name. Specifically does NOT have to have an encoding
-    pub data: RcType<Vec<u8>>,
+    data: RcType<Vec<u8>>,
 }
 impl RbSymbol {
+    /// Construct an RbSymbol from raw data
     pub fn new(data: Vec<u8>) -> RbSymbol {
         Self {
             data: RcType::new(data),
         }
     }
 
+    /// Get the raw bytes of the symbol.
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.data
+    }
+
+    /// Attempt to get the symbol as a UTF-8 string.
     pub fn as_str(&self) -> Option<&str> {
         std::str::from_utf8(&self.data).ok()
     }
 
+    /// Return a clone of this, converted to an `RbAny`.
     pub fn as_any(&self) -> RbAny {
         RbAny::Symbol(self.clone())
     }
 
+    /// Construct an RbSymbol from a string.
     pub fn from_str<S: AsRef<str>>(v: S) -> Self {
         Self { data: RcType::new(Vec::from(v.as_ref().as_bytes())) }
     }
 
+    /// Construct a JSON value from this object.
     #[cfg(feature = "json")]
     pub fn to_json(&self) -> Option<Value> {
         Some(Value::String(self.as_str()?.to_owned()))
@@ -41,12 +56,6 @@ impl Default for RbSymbol {
     }
 }
 
-/// Allow converting any string-like object to an RbSymbol
-// impl<S: AsRef<str>> From<S> for RbSymbol {
-//     fn from(v: S) -> Self {
-//         Self { data: RcType::new(Vec::from(v.as_ref().as_bytes())) }
-//     }
-// }
 impl From<&str> for RbSymbol {
     fn from(v: &str) -> Self { Self::from_str(v) }
 }
@@ -56,8 +65,6 @@ impl From<String> for RbSymbol {
 impl Into<RbSymbol> for &RbSymbol {
     fn into(self) -> RbSymbol { self.clone() }
 }
-
-
 
 impl fmt::Debug for RbSymbol {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {

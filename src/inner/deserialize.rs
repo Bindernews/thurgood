@@ -395,3 +395,12 @@ impl<R> RbReader<R> where
         Ok(buf[0])
     }
 }
+
+/// Deserialize an `RbAny` from an IO stream.
+/// 
+/// Thurgood does check for the proper header bytes, and will refuse to deserialize
+/// an incomplete or corrupted data stream.
+pub fn from_reader<R: io::Read>(src: R) -> TResult<RbAny> {
+    let mut de = RbReader::new(src);
+    de.read()
+}
