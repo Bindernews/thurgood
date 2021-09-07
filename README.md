@@ -1,4 +1,8 @@
-# Thurgood
+# Thurgood &emsp; [![Latest Version]][crates.io]
+
+[Latest Version]: https://img.shields.io/crates/v/thurgood.svg
+[crates.io]: https://crates.io/crates/serde\_json
+
 Thurgood is a Rust library that implements (de)serialization for Ruby's Marshal format.
 
 The primary use-case of Thurgood is to load some data, manipulate parts of it, then serailize
