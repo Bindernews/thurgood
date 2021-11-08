@@ -48,12 +48,23 @@ impl<W> RbWriter<W> where
 
     fn write_ref(&mut self, entry: &RcType<RbRef>) -> TResult<usize> {
         if let Some(obj_index) = self.object_map.get(entry) {
-            let obj_index = *obj_index;
-            Ok(self.write_byte(T_OBJECT_REF)? + self.write_int(obj_index as i32)?)
-        } else {
-            self.object_map.insert(entry.clone(), self.object_next);
-            self.object_next += 1;
+            // For special cases we write the object anyways, to increase compatibility with the standard Ruby implementation.
+            // This shouldn't be required, but it works either way.
+            if !self.is_special_case(entry) {
+                let obj_index = *obj_index;
+                return Ok(self.write_byte(T_OBJECT_REF)? + self.write_int(obj_index as i32)?);
+            }
+        }
+        {
+            // Don't add an entry in the object index for "Extended" types
             match entry.as_ref() {
+                RbRef::Extended { .. } => {},
+                _ => {
+                    self.object_map.insert(entry.clone(), self.object_next);
+                    self.object_next += 1;
+                }
+            }
+            return match entry.as_ref() {
                 RbRef::Float(v) => {
                     let mut sz = 0;
                     sz += self.write_byte(T_FLOAT)?;
@@ -212,7 +223,17 @@ impl<W> RbWriter<W> where
                 RbRef::Extended { module, object } => {
                     self.write_typed_data(module, object, T_EXTENDED)
                 },
-            }
+            };
+        }
+    }
+
+    /// Return true if the object is a special case and should be serialized fully even if it could be an object reference.
+    /// 
+    /// The official Ruby implementation has some odd quirks, and this helps to replicate them.
+    fn is_special_case(&self, obj: &RcType<RbRef>) -> bool {
+        match obj.as_ref() {
+            RbRef::Array(v) => v.len() == 0,
+            _ => false,
         }
     }
 
@@ -245,13 +266,6 @@ impl<W> RbWriter<W> where
     fn write_int(&mut self, v: i32) -> TResult<usize> {
         let mut buf = [0u8; 5];
 
-        fn count_bytes(b: &[u8]) -> usize {
-            for i in 1..b.len() {
-                if b[i] == 0 { return i; }
-            }
-            return b.len();
-        }
-
         match v {
             0 => self.write_byte(0),
             1 ..= 122 => self.write_byte((v as u8) + 5),
@@ -259,7 +273,7 @@ impl<W> RbWriter<W> where
             _ => {
                 buf[1..].copy_from_slice(&v.to_le_bytes());
                 // Count how many bytes we need
-                let sz = count_bytes(&buf) as i32;
+                let sz = 5 - (v.leading_zeros() / 8) as i32;
                 if v > 0 {
                     buf[0] = (sz - 1) as u8;
                 } else {

@@ -73,63 +73,64 @@ impl<R> RbReader<R> where
     }
 
     fn read_ref(&mut self, type_byte: u8) -> TResult<RbAny> {
-        let o_index = self.alloc_object();
-        let obj = match type_byte {
-            T_INSTANCE => {
-                self.read_instance()
-            },
-            T_ARRAY => {
-                self.read_array()
-            },
-            T_BIGNUM => {
-                self.read_bignum()
-            },
-            T_CLASS => {
-                Ok(RbRef::ClassRef(self.read_class_mod_ref()?))
-            },
-            T_MODULE => {
-                Ok(RbRef::ModuleRef(self.read_class_mod_ref()?))
-            },
-            T_CLASS_MODULE => {
-                Ok(RbRef::ClassModuleRef(self.read_class_mod_ref()?))
-            },
-            T_DATA => {
-                Ok(RbRef::Data(self.read_rb_class()?))
-            },
-            T_FLOAT => {
-                Ok(RbRef::from(self.read_float()?))
-            },
-            T_HASH => { self.read_hash(false) },
-            T_HASH_DEFAULT => { self.read_hash(true) },
-            T_REGEX => { self.read_regex() },
-            T_STRING => {
-                self.read_string()
-            },
-            T_OBJECT => {
-                Ok(RbRef::Object(self.read_rb_object()?))
-            },
-            T_STRUCT => {
-                Ok(RbRef::Struct(self.read_rb_object()?))
-            },
-            T_USER_CLASS => {
-                self.read_user_class()
-            },
-            T_USER_DEFINED => {
-                let name = self.read_entry_symbol()?;
-                let data = self.read_len_bytes()?;
-                Ok(RbRef::UserData { name, data })
-            },
-            T_USER_MARSHAL => {
-                Ok(RbRef::UserMarshal(self.read_rb_class()?))
-            },
-            T_EXTENDED => {
-                let module = self.read_entry_symbol()?;
-                let object = self.read_entry()?;
-                Ok(RbRef::Extended { module, object })
-            },
-            _ => { Err(ThurgoodError::BadTypeByte(type_byte)) }
-        }?;
-        Ok(self.set_object(o_index, obj))
+        if type_byte == T_EXTENDED {
+            let module = self.read_entry_symbol()?;
+            let object = self.read_entry()?;
+            Ok(RbRef::Extended { module, object }.into_any())
+        } else {
+            let o_index = self.alloc_object();
+            let obj = match type_byte {
+                T_INSTANCE => {
+                    self.read_instance()
+                },
+                T_ARRAY => {
+                    self.read_array()
+                },
+                T_BIGNUM => {
+                    self.read_bignum()
+                },
+                T_CLASS => {
+                    Ok(RbRef::ClassRef(self.read_class_mod_ref()?))
+                },
+                T_MODULE => {
+                    Ok(RbRef::ModuleRef(self.read_class_mod_ref()?))
+                },
+                T_CLASS_MODULE => {
+                    Ok(RbRef::ClassModuleRef(self.read_class_mod_ref()?))
+                },
+                T_DATA => {
+                    Ok(RbRef::Data(self.read_rb_class()?))
+                },
+                T_FLOAT => {
+                    Ok(RbRef::from(self.read_float()?))
+                },
+                T_HASH => { self.read_hash(false) },
+                T_HASH_DEFAULT => { self.read_hash(true) },
+                T_REGEX => { self.read_regex() },
+                T_STRING => {
+                    self.read_string()
+                },
+                T_OBJECT => {
+                    Ok(RbRef::Object(self.read_rb_object()?))
+                },
+                T_STRUCT => {
+                    Ok(RbRef::Struct(self.read_rb_object()?))
+                },
+                T_USER_CLASS => {
+                    self.read_user_class()
+                },
+                T_USER_DEFINED => {
+                    let name = self.read_entry_symbol()?;
+                    let data = self.read_len_bytes()?;
+                    Ok(RbRef::UserData { name, data })
+                },
+                T_USER_MARSHAL => {
+                    Ok(RbRef::UserMarshal(self.read_rb_class()?))
+                },
+                _ => { Err(ThurgoodError::BadTypeByte(type_byte)) }
+            }?;
+            Ok(self.set_object(o_index, obj))
+        }
     }
 
     /// Allocate space for an object in the object list.
@@ -216,7 +217,13 @@ impl<R> RbReader<R> where
         let index = self.read_int()? as usize;
         if index < self.objects.len() {
             // println!("Object # {}", index);
-            Ok(self.objects[index].clone())
+            let base = &self.objects[index];
+            Ok(base.clone())
+            // if base.is_nil() {
+            //     Err(ThurgoodError::BadObjectRef(index))
+            // } else {
+            //     Ok(base.clone())
+            // }
         } else {
             Err(ThurgoodError::BadObjectRef(index))
         }
