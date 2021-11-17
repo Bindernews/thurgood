@@ -1,6 +1,6 @@
 [package]
 name = "thurgood"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2018"
 description = "Full (de)serialization support for Ruby's Marshal format"
 authors = ["Binder News"]
@@ -19,7 +19,7 @@ json = ["serde_json", "serde"]
 
 [dependencies]
 num-bigint = "0.4"
-num-traits = "0.2.14"
+num-traits = "0.2"
 thiserror = "1.0"
 serde = { version = "1.0", optional = true }
 serde_json = { version = "^1.0", optional = true }
