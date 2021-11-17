@@ -1,26 +1,23 @@
 use super::RbAny;
-use std::ops::{Deref, DerefMut};
-use std::collections::BTreeMap;
+use std::{cmp::Ordering, ops::{Deref, DerefMut}};
+use indexmap::IndexMap;
 
-#[cfg(feature = "json")]
-use serde_json::{Value, Map};
-
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, Eq, Debug)]
 pub struct RbHash {
-    pub map: BTreeMap<RbAny, RbAny>,
+    pub map: IndexMap<RbAny, RbAny>,
     pub default: Option<Box<RbAny>>,
 }
 impl RbHash {
     pub fn new() -> Self {
         Self {
-            map: BTreeMap::new(),
+            map: IndexMap::new(),
             default: None,
         }
     }
 
     /// Construct a RbHash from an array of key-value pairs
     pub fn from_pairs(pairs: Vec<(RbAny, RbAny)>) -> Self {
-        let mut map = BTreeMap::new();
+        let mut map = IndexMap::new();
         for item in pairs {
             map.insert(item.0, item.1);
         }
@@ -29,25 +26,44 @@ impl RbHash {
             default: None
         }
     }
+}
 
-    #[cfg(feature = "json")]
-    pub fn to_json(&self) -> Option<Value> {
-        use super::helper::json::JsonMapExt;
-        let mut pairs = Vec::new();
-        for it in self.map.iter() {
-            pairs.push( Value::Array(vec![it.0.to_json()?, it.1.to_json()?]) );
+impl PartialEq for RbHash {
+    fn eq(&self, other: &Self) -> bool {
+        if self.map.len() != other.map.len() {
+            return false;
         }
-        let mut map = Map::new();
-        map.ezset("@", "Hash");
-        map.ezset("data", pairs);
-        if let Some(def) = &self.default {
-            map.ezset("default", def.to_json()?);
+        for (k,v) in self.map.iter() {
+            if other.map.get(k) != Some(v) {
+                return false;
+            }
         }
-        Some(Value::Object(map))
+        return true;
     }
 }
+impl Ord for RbHash {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let c0 = self.map.len().cmp(&other.map.len());
+        if c0.is_ne() { return c0; }
+        for i in 0..self.map.len() {
+            let lh = self.map.get_index(i).unwrap();
+            let rh = other.map.get_index(i).unwrap();
+            let c0 = lh.0.cmp(rh.0);
+            if c0.is_ne() { return c0; }
+            let c1 = lh.1.cmp(rh.1);
+            if c1.is_ne() { return c1; }
+        }
+        return Ordering::Equal;
+    }
+}
+impl PartialOrd for RbHash {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 impl Deref for RbHash {
-    type Target = BTreeMap<RbAny, RbAny>;
+    type Target = IndexMap<RbAny, RbAny>;
     fn deref(&self) -> &Self::Target { &self.map }
 }
 impl DerefMut for RbHash {

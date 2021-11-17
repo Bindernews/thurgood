@@ -19,7 +19,7 @@ use crate::{
     error::*,
     RbType,
 };
-use super::{RbAny, RbClass, RbHash, RbRef, RbSymbol, RbObject};
+use super::{RbAny, RbClass, RbFields, RbHash, RbObject, RbRef, RbSymbol, RbUserData, rc_get_ptr};
 
 fn bytes_to_string(buf: &[u8]) -> TResult<String> {
     Ok(std::str::from_utf8(buf)?.to_owned())
@@ -31,7 +31,7 @@ pub struct RbReader<R> {
     src: R,
     symbols: Vec<RbSymbol>,
     objects: Vec<RbAny>,
-    sym_e: RbAny,
+    sym_e: RbSymbol,
 }
 
 impl<R> RbReader<R> where
@@ -45,7 +45,7 @@ impl<R> RbReader<R> where
             // at index 0, and since objects can't recursively reference, this works out.
             objects: vec![],
             // Cached copy of this symbol so we can easily test for string encodings
-            sym_e: RbAny::symbol_from("E"),
+            sym_e: RbSymbol::from_str("E"),
         }
     }
 
@@ -122,7 +122,7 @@ impl<R> RbReader<R> where
                 T_USER_DEFINED => {
                     let name = self.read_entry_symbol()?;
                     let data = self.read_len_bytes()?;
-                    Ok(RbRef::UserData { name, data })
+                    Ok(RbRef::UserData(RbUserData { name, data }))
                 },
                 T_USER_MARSHAL => {
                     Ok(RbRef::UserMarshal(self.read_rb_class()?))
@@ -144,10 +144,20 @@ impl<R> RbReader<R> where
 
     /// Replace the object at the given index with an RbRef and return the newly-created RbAny.
     fn set_object(&mut self, index: usize, obj: RbRef) -> RbAny {
-        let o = RbAny::from(obj);
-        // println!("Set: {} = {:?}", index, o.clone());
-        self.objects[index] = o.clone();
-        o
+        // If there an no extra references, set it the easy way
+        if self.objects[index].is_nil() {
+            self.objects[index] = RbAny::from(obj);
+        } else {
+            // Bypass mutability rules here. This is safe because no other code has access to
+            // any of the Rc/Arc/etc. created here until the read() function returns. Until that
+            // point this RbReader is the only "real" owner, no matter how many references there
+            // are to this object.
+            unsafe {
+                let raw_ptr = rc_get_ptr(self.objects[index].as_rc().unwrap());
+                *(raw_ptr as *mut RbRef) = obj;
+            }
+        }
+        self.objects[index].clone()
     }
 
     /// Read and return variable-sized integer from the data stream.
@@ -167,6 +177,7 @@ impl<R> RbReader<R> where
             self.src.read_exact(&mut buf[0..bytes_to_read])?;
             let u_val = u32::from_le_bytes(buf[0..4].try_into()
                 .expect("Something is VERY wrong, maybe a hardware error.")) as i32;
+            
             // Return the resulting value
             if is_neg {
                 Ok(-u_val)
@@ -175,10 +186,11 @@ impl<R> RbReader<R> where
             }
         // General case of single-byte value
         } else {
+            let b0 = buf[0] as i8;
             if is_neg {
-                Ok((buf[0] as i32) + 5)
+                Ok((b0 as i32) + 5)
             } else {
-                Ok((buf[0] as i32) - 5)
+                Ok((b0 as i32) - 5)
             }
         }
     }
@@ -217,13 +229,12 @@ impl<R> RbReader<R> where
         let index = self.read_int()? as usize;
         if index < self.objects.len() {
             // println!("Object # {}", index);
-            let base = &self.objects[index];
+            let base = &mut self.objects[index];
+            // If the base is nil, we need to make it an Rc and use unsafe hackery later to set the value
+            if base.is_nil() {
+                *base = RbRef::from(1.0f32).into_any();
+            }
             Ok(base.clone())
-            // if base.is_nil() {
-            //     Err(ThurgoodError::BadObjectRef(index))
-            // } else {
-            //     Ok(base.clone())
-            // }
         } else {
             Err(ThurgoodError::BadObjectRef(index))
         }
@@ -276,9 +287,9 @@ impl<R> RbReader<R> where
         }
     }
 
-    fn is_utf8(&self, pairs: &Vec<(RbAny, RbAny)>) -> bool {
-        for it in pairs {
-            if it.0 == self.sym_e && it.1 == RbAny::True {
+    fn is_utf8(&self, pairs: &RbFields) -> bool {
+        for it in pairs.iter() {
+            if it.0 == &self.sym_e && it.1 == &RbAny::True {
                 return true
             }
         }
@@ -293,12 +304,14 @@ impl<R> RbReader<R> where
 
     /// Read `count` key-value pairs from the stream, storing them in and returning an RbHash.
     /// The keys may be anything.
-    fn read_pairs(&mut self, count: usize) -> TResult<Vec<(RbAny, RbAny)>> {
-        let mut result = Vec::new();
+    fn read_pairs(&mut self, count: usize) -> TResult<RbFields> {
+        let mut result = RbFields::new();
         for _ in 0..count {
             let key = self.read_entry()?;
+            let key_sym = key.as_symbol()
+                .ok_or_else(|| ThurgoodError::unexpected_type(RbType::Symbol, key.get_type()))?;
             let val = self.read_entry()?;
-            result.push((key, val));
+            result.insert(key_sym.clone(), val);
         }
         return Ok(result);
     }
@@ -337,17 +350,17 @@ impl<R> RbReader<R> where
         Ok(bytes_to_string(&buf)?)
     }
 
-    fn read_float(&mut self) -> TResult<f32> {
+    fn read_float(&mut self) -> TResult<f64> {
         let buf = self.read_len_bytes()?;
         // Apparently this CAN be a C string, so we need to check for a NULL terminator.
         // Default to the buffer length.
         let last = buf.iter().position(|e| *e == 0).unwrap_or(buf.len());
         let decoded = std::str::from_utf8(&buf[0..last])?;
         match decoded {
-            "inf" => Ok(f32::INFINITY),
-            "-inf" => Ok(f32::NEG_INFINITY),
-            "nan" => Ok(f32::NAN),
-            _ => Ok(decoded.parse::<f32>()?),
+            "inf" => Ok(f64::INFINITY),
+            "-inf" => Ok(f64::NEG_INFINITY),
+            "nan" => Ok(f64::NAN),
+            _ => Ok(decoded.parse::<f64>()?),
         }
     }
 
@@ -356,9 +369,12 @@ impl<R> RbReader<R> where
     fn read_hash(&mut self, has_default: bool) -> TResult<RbRef> {
         // Read the hash
         let num_pairs = self.read_int()? as usize;
-        let mut pairs = self.read_pairs(num_pairs)?;
         let mut nhash = RbHash::new();
-        nhash.map.extend(pairs.drain(..));
+        for _ in 0..num_pairs {
+            let key = self.read_entry()?;
+            let val = self.read_entry()?;
+            nhash.insert(key, val);
+        }
         if has_default {
             nhash.default = Some(Box::new(self.read_entry()?));
         }

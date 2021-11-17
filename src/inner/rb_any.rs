@@ -1,10 +1,7 @@
-use std::fmt;
-use super::{RbSymbol, RbRef, RbHash, RbObject, RcType};
+use std::{cmp::Ordering, fmt, hash::{Hash, Hasher}};
+use super::{RbHash, RbObject, RbRef, RbSymbol, RcType, rb_compare::RbCompare, rc_get_ptr};
 use crate::RbType;
 use std::fmt::Formatter;
-
-#[cfg(feature = "json")]
-use serde_json::Value;
 
 macro_rules! match_opt {
     ($var:ident { $the_match:pat => $the_result:expr }) => {
@@ -14,7 +11,7 @@ macro_rules! match_opt {
 
 /// Represents any valid Ruby value.
 /// 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Eq, PartialOrd, Ord)]
 pub enum RbAny {
     Int(i32),
     True,
@@ -75,6 +72,13 @@ impl RbAny {
         match self { RbAny::Ref(ref mut r) => RcType::get_mut(r), _ => None }
     }
 
+    pub fn as_rc(&self) -> Option<&RcType<RbRef>> {
+        match self { RbAny::Ref(r) => Some(r), _ => None }
+    }
+    pub fn as_rc_mut(&mut self) -> Option<&mut RcType<RbRef>> {
+        match self { RbAny::Ref(r) => Some(r), _ => None }
+    }
+
     pub fn as_array(&self) -> Option<&Vec<RbAny>> {
         self.as_rbref().and_then(|v| v.as_array())
     }
@@ -107,18 +111,34 @@ impl RbAny {
         Some(current)
     }
 
-    /// Returns a JSON value representing this Any, or None if the conversion failed.
+    pub fn deep_cmp(&self, other: &Self) -> Ordering {
+        RbCompare::new().cmp(self, other)
+    }
+
+    pub fn deep_eq(&self, other: &Self) -> bool {
+        self.deep_cmp(other).is_eq()
+    }
+
     #[cfg(feature = "json")]
-    pub fn to_json(&self) -> Option<Value> {
-        let r = match &self {
-            Self::Int(v) => Value::from(*v),
-            Self::True => Value::Bool(true),
-            Self::False => Value::Bool(false),
-            Self::Nil => Value::Null,
-            Self::Symbol(sym) => Value::String(sym.as_str()?.to_owned()),
-            Self::Ref(r) => r.to_json()?,
-        };
-        Some(r)
+    pub fn to_json(&self) -> Option<serde_json::Value> {
+        super::rb_json::RbToJson::new().to_json(self)
+    }
+}
+
+impl PartialEq for RbAny {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Int(l0), Self::Int(r0)) => l0 == r0,
+            (Self::Symbol(l0), Self::Symbol(r0)) => l0 == r0,
+            (Self::Ref(l0), Self::Ref(r0)) => {
+                if let Some(result) = l0.partial_eq(r0) {
+                    result
+                } else {
+                    rc_get_ptr(l0) == rc_get_ptr(r0)
+                }
+            },
+            _ => core::mem::discriminant(self) == core::mem::discriminant(other),
+        }
     }
 }
 
@@ -130,7 +150,13 @@ impl fmt::Debug for RbAny {
             Self::False => write!(f, "False"),
             Self::Nil => write!(f, "Nil"),
             Self::Symbol(v) => write!(f, "{:?}", v),
-            Self::Ref(v) => v.fmt(f)
+            Self::Ref(v) => {
+                if v.contains_ref() {
+                    write!(f, "{:?}", rc_get_ptr(v))
+                } else {
+                    v.fmt(f)
+                }
+            },                
         }
     }
 }
@@ -141,8 +167,22 @@ impl Default for RbAny {
     }
 }
 
+impl Hash for RbAny {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            Self::Ref(r) => {
+                state.write_usize(rc_get_ptr(r) as usize);
+            },
+            _ => {
+                core::mem::discriminant(self).hash(state);
+            },
+        }
+    }
+}
+
 impl From<i32> for RbAny { fn from(v: i32) -> Self { RbAny::Int(v) } }
 impl From<f32> for RbAny { fn from(v: f32) -> Self { Self::from(RbRef::from(v)) } }
+impl From<f64> for RbAny { fn from(v: f64) -> Self { Self::from(RbRef::from(v)) } }
 impl From<bool> for RbAny { fn from(v: bool) -> Self { if v { RbAny::True } else { RbAny::False } } }
 impl From<String> for RbAny { fn from(v: String) -> Self { Self::from(RbRef::Str(v)) } }
 impl From<&str> for RbAny { fn from(v: &str) -> Self { Self::from(RbRef::Str(v.to_owned())) } }

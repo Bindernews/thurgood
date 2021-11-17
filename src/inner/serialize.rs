@@ -1,16 +1,16 @@
 use std::io;
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 use crate::consts::*;
 use crate::error::{TResult};
-use super::{RbAny, RbRef, RbSymbol, RbObject, RFloat32, RcType};
+use super::{RbFloat, RbAny, RbFields, RbObject, RbRef, RbSymbol, RcType, rc_get_ptr};
 use num_traits::sign::Signed;
 
 #[derive(Clone)]
 pub struct RbWriter<W> {
     dst: W,
-    symbol_map: BTreeMap<RbSymbol, usize>,
+    symbol_map: HashMap<RbSymbol, usize>,
     symbol_next: usize,
-    object_map: BTreeMap<RcType<RbRef>, usize>,
+    object_map: HashMap<*const RbRef, usize>,
     object_next: usize,
     sym_e: RbSymbol,
 }
@@ -21,9 +21,9 @@ impl<W> RbWriter<W> where
     pub fn new(dst: W) -> Self {
         Self {
             dst,
-            symbol_map: BTreeMap::new(),
+            symbol_map: HashMap::new(),
             symbol_next: 0,
-            object_map: BTreeMap::new(),
+            object_map: HashMap::new(),
             object_next: 0,
             sym_e: RbSymbol::from("E"),
         }
@@ -47,7 +47,8 @@ impl<W> RbWriter<W> where
     }
 
     fn write_ref(&mut self, entry: &RcType<RbRef>) -> TResult<usize> {
-        if let Some(obj_index) = self.object_map.get(entry) {
+        let rc_ptr = rc_get_ptr(entry);
+        if let Some(obj_index) = self.object_map.get(&rc_ptr) {
             // For special cases we write the object anyways, to increase compatibility with the standard Ruby implementation.
             // This shouldn't be required, but it works either way.
             if !self.is_special_case(entry) {
@@ -60,7 +61,7 @@ impl<W> RbWriter<W> where
             match entry.as_ref() {
                 RbRef::Extended { .. } => {},
                 _ => {
-                    self.object_map.insert(entry.clone(), self.object_next);
+                    self.object_map.insert(rc_ptr, self.object_next);
                     self.object_next += 1;
                 }
             }
@@ -115,7 +116,7 @@ impl<W> RbWriter<W> where
                     self.dst.write_all(&prefix)?;
                     sz += prefix.len();
                     sz += self.write_len_bytes(&content)?;
-                    sz += self.write_pairs(metadata)?;
+                    sz += self.write_fields(metadata)?;
                     Ok(sz)
                 },
 
@@ -142,7 +143,7 @@ impl<W> RbWriter<W> where
                     sz += self.write_len_bytes(content.as_slice())?;
                     // Write regex flags
                     sz += self.write_byte(*flags as u8)?;
-                    sz += self.write_pairs(metadata)?;
+                    sz += self.write_fields(metadata)?;
                     Ok(sz)
                 },
 
@@ -210,11 +211,11 @@ impl<W> RbWriter<W> where
                 RbRef::UserClass( v ) => {
                     self.write_typed_data(&v.name, &v.data, T_USER_CLASS)
                 },
-                RbRef::UserData { name, data } => {
+                RbRef::UserData(v) => {
                     let mut sz = 0;
                     sz += self.write_byte(T_USER_DEFINED)?;
-                    sz += self.write_symbol(name)?;
-                    sz += self.write_len_bytes(&data)?;
+                    sz += self.write_symbol(&v.name)?;
+                    sz += self.write_len_bytes(&v.data)?;
                     Ok(sz)
                 },
                 RbRef::UserMarshal( v ) => {
@@ -285,7 +286,7 @@ impl<W> RbWriter<W> where
         }
     }
 
-    fn write_float(&mut self, v: &RFloat32) -> TResult<usize> {
+    fn write_float(&mut self, v: &RbFloat) -> TResult<usize> {
         if v.0.is_infinite() {
             if v.0.is_sign_negative() {
                 self.write_len_bytes("-inf".as_bytes())
@@ -301,11 +302,11 @@ impl<W> RbWriter<W> where
 
     /// Write a varint (n) denoting the number of *pairs* and then (n * 2) objects:
     /// the key, value pairs. Returns the number of bytes written.
-    fn write_pairs(&mut self, pairs: &Vec<(RbAny, RbAny)>) -> TResult<usize> {
+    fn write_fields(&mut self, pairs: &RbFields) -> TResult<usize> {
         let mut sz = 0;
         sz += self.write_int(pairs.len() as i32)?;
         for (key, val) in pairs.iter() {
-            sz += self.write_entry(key)?;
+            sz += self.write_entry(&key.as_any())?;
             sz += self.write_entry(val)?;
         }
         Ok(sz)

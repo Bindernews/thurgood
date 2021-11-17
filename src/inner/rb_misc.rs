@@ -1,8 +1,10 @@
-use std::cmp::{Eq, PartialEq};
+use std::cmp::{Eq, Ordering, PartialEq};
 use std::fmt;
+use std::ops::{Deref, DerefMut};
 use super::{RbAny, RcType};
+use indexmap::IndexMap;
 #[cfg(feature = "json")]
-use serde_json::{Value, Map};
+use serde_json::Value;
 
 /// A Ruby Symbol (e.g. :key, :value).
 /// 
@@ -77,7 +79,41 @@ impl fmt::Debug for RbSymbol {
 }
 
 /// An ordered list of key-value pairs.
-pub type RbFields = Vec<(RbAny, RbAny)>;
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RbFields(IndexMap<RbSymbol, RbAny>);
+impl RbFields {
+    pub fn new() -> Self {
+        Self(IndexMap::new())
+    }
+}
+impl PartialOrd for RbFields {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for RbFields {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let c0 = self.0.len().cmp(&other.0.len());
+        if c0.is_ne() { return c0; }
+        for i in 0..self.0.len() {
+            let lh = self.0.get_index(i).unwrap();
+            let rh = other.0.get_index(i).unwrap();
+            let c0 = lh.0.cmp(rh.0);
+            if c0.is_ne() { return c0; }
+            let c1 = lh.1.cmp(rh.1);
+            if c1.is_ne() { return c1; }
+        }
+        return Ordering::Equal;
+    }
+}
+impl Deref for RbFields {
+    type Target = IndexMap<RbSymbol, RbAny>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+impl DerefMut for RbFields {
+    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.0 }
+}
+
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct RbClass {
@@ -85,13 +121,13 @@ pub struct RbClass {
     pub data: RbAny,
 }
 impl RbClass {
+}
 
-    #[cfg(feature = "json")]
-    pub fn to_json(&self) -> Option<Value> {
-        use super::helper::json::JsonMapExt;
-        let mut map = Map::new();
-        map.ezset("@", self.name.as_str()?);
-        map.ezset("data", self.data.to_json()?);
-        Some(Value::Object(map))
-    }
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct RbUserData {
+    pub name: RbSymbol,
+    pub data: Vec<u8>,
+}
+impl RbUserData {
 }

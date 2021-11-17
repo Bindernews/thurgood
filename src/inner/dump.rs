@@ -18,7 +18,7 @@ impl<'a, 'b: 'a> Dumper<'a, 'b> {
                     RbRef::Object(o) => {
                         write!(self.f, "Object {:?} {{\n", o.name)?;
                         if depth < self.max_depth {
-                            for (key, val) in &o.fields {
+                            for (key, val) in o.fields.iter() {
                                 self.print_spaces(depth + 1)?;
                                 write!(self.f, "{:?} = ", key)?;
                                 self.dump_rec(val, depth + 1)?;

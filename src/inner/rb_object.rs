@@ -1,13 +1,6 @@
 use std::cmp::{Eq, PartialEq, Ordering};
-use indexmap::IndexMap;
-use super::{RbAny, RbSymbol, RbRef};
-use crate::{
-    ThurgoodError as Error,
-    RbType,
-};
-
-#[cfg(feature = "json")]
-use serde_json::{Value, Map};
+use super::{RbAny, RbFields, RbRef, RbSymbol};
+use crate::{ThurgoodError as Error};
 
 /// A Ruby Object (or Struct) that has a type name and a set of fields, this is a serialized
 /// instance of a class.
@@ -20,12 +13,12 @@ pub struct RbObject {
     /// Type name of the Object
     pub name: RbSymbol,
     /// Map of object fields
-    pub fields: IndexMap<RbSymbol, RbAny>,
+    pub fields: RbFields,
 }
 impl RbObject {
     /// Construct a new `RbObject` with no fields.
     pub fn new(name: &RbSymbol) -> Self {
-        Self { name: name.clone(), fields: IndexMap::new() }
+        Self { name: name.clone(), fields: RbFields::new() }
     }
 
     /// Construct a new Object with the given name and fields.
@@ -41,7 +34,7 @@ impl RbObject {
             vals.push(it.1.clone());
         }
         let name = name.into();
-        let mut fields = IndexMap::new();
+        let mut fields = RbFields::new();
         keys.drain(..).zip(vals.drain(..)).for_each(|it| {
             fields.insert(it.0, it.1);
         });
@@ -86,11 +79,9 @@ impl RbObject {
 
     /// Assume each pair is an `(RbSymbol, RbAny)` and add each pair to the list of fields.
     /// If one of the keys is not an `RbSymbol` return an error, otherwise return `Ok(())`.
-    pub fn extend_from_pairs(&mut self, pairs: &[(RbAny, RbAny)]) -> Result<(), Error> {
-        for it in pairs {
-            let key = it.0.as_symbol()
-                .ok_or_else(|| Error::unexpected_type(RbType::Symbol, it.0.get_type()))?;
-            self.insert(key.clone(), it.1.clone());
+    pub fn extend_from_pairs(&mut self, pairs: &RbFields) -> Result<(), Error> {
+        for it in pairs.iter() {
+            self.insert(it.0.clone(), it.1.clone());
         }
         Ok(())
     }
@@ -104,25 +95,6 @@ impl RbObject {
     /// Convert this into an `RbRef::Struct`.
     pub fn into_struct(self) -> RbRef {
         RbRef::Struct(self)
-    }
-
-    /// Return a new JSON object representing this object.
-    #[cfg(feature = "json")]
-    pub fn to_json(&self) -> Option<Value> {
-        use super::helper::json::JsonMapExt;
-        let mut map = Map::new();
-        map.ezset("@", self.name.as_str()?);
-        let mut fields: Vec<Option<(String, Value)>> = self.fields.iter()
-            .map(|it| {
-                let key = it.0.as_str()?.to_owned();
-                let val = it.1.to_json()?;
-                Some( (key, val) )
-            }).collect();
-        for it in fields.drain(..) {
-            let pair = it?;
-            map.insert(pair.0, pair.1);
-        }
-        Some(Value::Object(map))
     }
 }
 

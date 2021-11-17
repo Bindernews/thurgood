@@ -1,10 +1,6 @@
 use num_bigint::BigInt;
-use super::{RFloat32, RbAny, RbSymbol, RbFields, RbClass, RbObject, RbHash};
+use super::{RbFloat, RbAny, RbSymbol, RbFields, RbClass, RbObject, RbHash, RbUserData};
 use crate::RbType;
-use base64;
-
-#[cfg(feature = "json")]
-use serde_json::{Value, Map, Number};
 
 macro_rules! match_opt {
     ($var:ident { $the_match:pat => $the_result:expr }) => {
@@ -14,7 +10,7 @@ macro_rules! match_opt {
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum RbRef {
-    Float(RFloat32),
+    Float(RbFloat),
     BigInt(BigInt),
     /// Array of RbAny
     Array(Vec<RbAny>),
@@ -40,7 +36,7 @@ pub enum RbRef {
     /// Subclass of String, Regexp, Array, or Hash
     UserClass(RbClass),
     /// User-defined data, as stored/loaded using `_dump` and `_load` methods
-    UserData { name: RbSymbol, data: Vec<u8> },
+    UserData(RbUserData),
     /// Class-based user-defined serialization
     UserMarshal(RbClass),
     /// Extended object
@@ -62,7 +58,7 @@ impl RbRef {
             RbRef::ClassModuleRef(_) => RbType::ClassModuleRef,
             RbRef::Data(_) => RbType::Data,
             RbRef::UserClass(_) => RbType::UserClass,
-            RbRef::UserData { .. } => RbType::UserData,
+            RbRef::UserData(_) => RbType::UserData,
             RbRef::UserMarshal(_) => RbType::UserMarshal,
             RbRef::Extended { .. } => RbType::Extended,
         }
@@ -75,7 +71,7 @@ impl RbRef {
         match &self {
             RbRef::Float(_) | RbRef::BigInt(_) | RbRef::Str(_) | RbRef::StrI { .. }
                 | RbRef::Regex { .. } | RbRef::RegexI { .. } | RbRef::ClassRef( _ )
-                | RbRef::ModuleRef( _ ) | RbRef::ClassModuleRef( _ ) | RbRef::UserData { .. }
+                | RbRef::ModuleRef( _ ) | RbRef::ClassModuleRef( _ ) | RbRef::UserData(_)
                 => None,
             RbRef::Data(v) | RbRef::UserClass(v) | RbRef::UserMarshal(v) => {
                 v.data.as_rbref().and_then(|c| c.get_child(key))
@@ -105,71 +101,79 @@ impl RbRef {
     }
 
 
-    #[cfg(feature = "json")]
-    pub fn to_json(&self) -> Option<Value> {
-        use super::helper::json::JsonMapExt;
+    /// Returns a number representing the relative "order" of different `RbRef` types.
+    /// 
+    /// Note that the order isn't relative to anything important. This is simply to
+    /// make disparate data types "comparable" even when they're not.
+    pub fn ordinal(&self) -> usize {
+        match self {
+            Self::Array(_) => 0,
+            Self::BigInt(_) => 1,
+            Self::ClassModuleRef(_) => 2,
+            Self::ClassRef(_) => 3,
+            Self::Data(_) => 4,
+            Self::Extended { .. } => 5,
+            Self::Float(_) => 6,
+            Self::Hash(_) => 7,
+            Self::ModuleRef(_) => 8,
+            Self::Object(_) => 9,
+            Self::Regex { .. } => 10,
+            Self::RegexI { .. } => 11,
+            Self::Str(_) => 12,
+            Self::StrI { .. } => 13,
+            Self::Struct(_) => 14,
+            Self::UserClass(_) => 15,
+            Self::UserData { .. } => 16,
+            Self::UserMarshal(_) => 17,
+        }
+    }
 
-        let r = match &self {
-            Self::Float(v) => Value::Number(Number::from_f64(v.0 as f64)?),
-            Self::BigInt(v) => Value::String(v.to_string()),
-            Self::Array(v) => {
-                let mut ar = Vec::with_capacity(v.capacity());
-                for it in v.iter() {
-                    ar.push(it.to_json()?);
+    /// Test for equality ONLY with variants that aren't containers.
+    /// 
+    /// This will return a value for BigInt, ClassModuleRef, ClassRef, Float, ModuleRef, Regex, Str, UserData.
+    /// If types are incompatible it will return false, and if the types are not one of those listed above
+    /// this function will return None.
+    pub fn partial_eq(&self, other: &Self) -> Option<bool> {
+        match (self, other) {
+            (RbRef::BigInt(l0), RbRef::BigInt(r0)) => Some(l0 == r0),
+            (
+                RbRef::ClassModuleRef(l0),
+                RbRef::ClassModuleRef(r0)|RbRef::ClassRef(r0)|RbRef::ModuleRef(r0)
+            ) => Some(l0 == r0),
+            (RbRef::ClassRef(l0)|RbRef::ModuleRef(l0), RbRef::ClassModuleRef(r0)) => Some(l0 == r0),
+            (RbRef::Float(l0), RbRef::Float(r0)) => Some(l0 == r0),
+            (
+                RbRef::Regex { content: l_con, flags: l_flags },
+                RbRef::Regex { content: r_con, flags: r_flags },
+            ) => Some(l_con == r_con && l_flags == r_flags),
+            (RbRef::Str(l0), RbRef::Str(r0)) => Some(l0 == r0),
+            (RbRef::UserData(l0), RbRef::UserData(r0)) => Some(l0 == r0),
+            _ => {
+                if std::mem::discriminant(self) != std::mem::discriminant(other) {
+                    Some(false)
+                } else {
+                    None
                 }
-                Value::Array(ar)
             },
-            Self::Str(v) => Value::String(v.clone()),
-            Self::StrI { .. } => todo!(),
-            // TODO use an object and include flags
-            Self::Regex { content, flags } => {
-                let mut map = Map::new();
-                map.ezset("data", content.clone());
-                map.ezset("flags", *flags);
-                map.ezset("@", "RegEx");
-                Value::Object(map)
-            },
-            Self::RegexI { content, flags, .. } => {
-                let mut map = Map::new();
-                map.ezset("data-b64", base64::encode(content));
-                map.ezset("flags", *flags);
-                map.ezset("@", "RegEx");
-                Value::Object(map)
-            },
-            Self::Hash(hash) => hash.to_json()?,
-            Self::Struct(v) => v.to_json()?,
-            Self::Object(v) => v.to_json()?,
-            Self::ClassRef(v) => Value::from(v.as_str()),
-            Self::ModuleRef(v) => Value::from(v.as_str()),
-            Self::ClassModuleRef(v) => Value::from(v.as_str()),
-            Self::Data(v) => v.to_json()?,
-            Self::UserClass(v) => v.to_json()?,
-            Self::UserData { name, data } => {
-                let mut map = Map::new();
-                map.ezset("data", base64::encode(data));
-                map.ezset("name", name.to_json()?);
-                map.ezset("@", "@userdata@");
-                Value::Object(map)
-            },
-            Self::UserMarshal(v) => v.to_json()?,
-            Self::Extended { module, object } => {
-                let mut map = Map::new();
-                map.ezset("object", object.to_json()?);
-                map.ezset("module", module.to_json()?);
-                map.ezset("@", "@extended@");
-                Value::Object(map)
-            }
-        };
-        Some(r)
+        }
+    }
+
+    /// Returns true if this type may contain a (potentially recursive) reference.
+    pub fn contains_ref(&self) -> bool {
+        match self {
+            Self::BigInt(_)|Self::ClassModuleRef(_)|Self::ClassRef(_)|Self::ModuleRef(_)|
+                Self::Float(_)|Self::Regex {..}|Self::Str(_)|Self::UserData(_) => false,
+            _ => true
+        }
     }
 }
 
 impl RbRef {
-    pub fn as_float(&self) -> Option<&f32> {
-        match_opt!(self { RbRef::Float(ref v) => &v.0 })
+    pub fn as_float(&self) -> Option<&RbFloat> {
+        match_opt!(self { RbRef::Float(ref v) => v })
     }
-    pub fn as_float_mut(&mut self) -> Option<&mut f32> {
-        match_opt!(self { RbRef::Float(ref mut v) => &mut v.0 })
+    pub fn as_float_mut(&mut self) -> Option<&mut RbFloat> {
+        match_opt!(self { RbRef::Float(ref mut v) => v })
     }
     pub fn as_array(&self) -> Option<&Vec<RbAny>> {
         match_opt!(self { RbRef::Array(ref v) => v })
@@ -203,6 +207,7 @@ impl RbRef {
     }
 }
 
-impl From<f32> for RbRef { fn from(v: f32) -> Self { RbRef::Float(RFloat32(v)) } }
+impl From<f32> for RbRef { fn from(v: f32) -> Self { Self::from(v as f64) } }
+impl From<f64> for RbRef { fn from(v: f64) -> Self { RbRef::Float(RbFloat(v)) } }
 impl From<RbHash> for RbRef { fn from(v: RbHash) -> Self { RbRef::Hash(v) } }
 impl From<RbObject> for RbRef { fn from(v: RbObject) -> Self { RbRef::Object(v) } }

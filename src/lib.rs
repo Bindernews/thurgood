@@ -51,6 +51,9 @@ pub use error::{ThurgoodError, TResult};
 
 pub mod rc {
     pub use std::rc::Rc as RcType;
+    pub fn rc_get_ptr<T>(reff: &RcType<T>) -> *const T {
+        RcType::as_ptr(reff)
+    }
     #[path="../inner/mod.rs"]
     mod inner;
     pub use inner::*;
@@ -59,6 +62,10 @@ pub mod rc {
 #[cfg(not(doctest))]
 pub mod arc {
     pub use std::sync::Arc as RcType;
+    pub fn rc_get_ptr<T>(reff: &RcType<T>) -> *const T {
+        RcType::as_ptr(reff)
+    }
+
     #[path="../inner/mod.rs"]
     mod inner;
     pub use inner::*;
@@ -83,6 +90,10 @@ mod tests {
         buf
     }
 
+    fn assert_write(value: &RbAny, expected: &[u8]) {
+        assert_eq!(escape_str(writer_write(value).as_slice()), escape_str(expected));
+    }
+
     #[test]
     fn array_string_hash() {
         let inp = "\x04\x08[\x07I\"\ttest\x06:\x06ET{\x06:\x06aI\"\x06b\x06;\x00T";
@@ -92,7 +103,7 @@ mod tests {
                     ( RbSymbol::from("a").into(), RbAny::from("b") )
                 ])),
             ]);
-        assert_eq!(reader_parse(inp), exp);
+        assert!(reader_parse(inp).deep_eq(&exp));
         assert_eq!(writer_write(&exp).as_slice(), inp.as_bytes());
     }
 
@@ -111,8 +122,8 @@ mod tests {
                 (sym_age.clone(), 24.into()),
             ]).into_any(),
         ]);
-        assert_eq!(reader_parse(inp), exp);
-        assert_eq!(writer_write(&exp).as_slice(), inp.as_bytes());
+        assert!(reader_parse(inp).deep_eq(&exp));
+        assert_write(&exp, inp.as_bytes());
     }
 
     #[test]
@@ -126,8 +137,8 @@ mod tests {
                 (sym_aa.clone().into(), RbRef::new_object(&sym_bar_baz_a, &vec![]).into()),
                 (sym_bb.clone().into(), RbRef::new_object(&sym_bar_baz_b, &vec![]).into()),
             ]).into();
-        assert_eq!(reader_parse(inp), exp);
-        assert_eq!(writer_write(&exp).as_slice(), inp.as_bytes());
+        assert!(reader_parse(inp).deep_eq(&exp));
+        assert_write(&exp, inp.as_bytes());
     }
 
     #[test]
@@ -153,8 +164,8 @@ mod tests {
                 ob_2.clone(),
                 ob_2.clone(),
             ]).into_any();
-        assert_eq!(reader_parse(inp), exp);
-        assert_eq!(writer_write(&exp).as_slice(), inp.as_bytes());
+        assert!(reader_parse(inp).deep_eq(&exp));
+        assert_write(&exp, inp.as_bytes());
     }
 
     #[test]
@@ -165,8 +176,8 @@ mod tests {
             ob_1.clone(),
             ob_1.clone(),
         ]).into_any();
-        assert_eq!(reader_parse(inp), exp);
-        assert_eq!(writer_write(&exp).as_slice(), inp.as_bytes());
+        assert!(reader_parse(inp).deep_eq(&exp));
+        assert_write(&exp, inp.as_bytes());
     }
 
     #[test]
@@ -177,22 +188,35 @@ mod tests {
             module: sym_bar.clone(),
             object: RbRef::Array(vec![]).into(),
         }.into_any();
-        assert_eq!(reader_parse(inp), exp);
-        assert_eq!(writer_write(&exp).as_slice(), inp.as_bytes());
+        assert!(reader_parse(inp).deep_eq(&exp));
+        assert_write(&exp, inp.as_bytes());
     }
 
     /// Technically floats can be stored as NULL-terminated C-strings. This is dumb, but here's
     /// a test for it anyways. This also tests normal floats.
     #[test]
     fn float_types() {
-        let inp = "\x04\x08[\x07f\x0D0.123\x00NOf\n1.234";
-        let out = "\x04\x08[\x07f\n0.123f\n1.234";
+        let inp = "\x04\x08[\x08f\x0D0.123\x00NOf\n1.234f\x10-1196073.75";
+        let out = "\x04\x08[\x08f\n0.123f\n1.234f\x10-1196073.75";
         let exp = RbAny::from(vec![
-            RbAny::from(0.123f32),
-            RbAny::from(1.234f32),
+            RbAny::from(0.123f64),
+            RbAny::from(1.234f64),
+            RbAny::from(-1196073.75f64),
         ]);
-        assert_eq!(reader_parse(inp), exp);
-        assert_eq!(writer_write(&exp).as_slice(), out.as_bytes());
+        assert!(reader_parse(inp).deep_eq(&exp));
+        assert_write(&exp, out.as_bytes());
     }
 
+    fn escape_str(src: &[u8]) -> String {
+        let mut out = String::new();
+        for b in src {
+            let c = char::from(*b);
+            if c.is_ascii_alphanumeric() || c.is_ascii_punctuation() {
+                out.push(c);
+            } else {
+                out.push_str(&format!("\\x{:02X}", *b));
+            }
+        }
+        out
+    }
 }
