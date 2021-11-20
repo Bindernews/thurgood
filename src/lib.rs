@@ -49,27 +49,9 @@ pub use error::{ThurgoodError, TResult};
 // Uncomment to get JetBrains IDE help, re-comment for build/release/push. (https://github.com/intellij-rust/intellij-rust/issues/4265)
 // pub use std::rc::Rc as RcType; pub mod inner;
 
-pub mod rc {
-    pub use std::rc::Rc as RcType;
-    pub fn rc_get_ptr<T>(reff: &RcType<T>) -> *const T {
-        RcType::as_ptr(reff)
-    }
-    #[path="../inner/mod.rs"]
-    mod inner;
-    pub use inner::*;
-}
-
+pub mod rc;
 #[cfg(not(doctest))]
-pub mod arc {
-    pub use std::sync::Arc as RcType;
-    pub fn rc_get_ptr<T>(reff: &RcType<T>) -> *const T {
-        RcType::as_ptr(reff)
-    }
-
-    #[path="../inner/mod.rs"]
-    mod inner;
-    pub use inner::*;
-}
+pub mod arc;
 
 #[cfg(test)]
 mod tests {
