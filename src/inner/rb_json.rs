@@ -1,6 +1,8 @@
 use serde_json::{Value, Map, Number};
 use std::collections::HashMap;
 use super::{RbAny, RbClass, RbHash, RbObject, RbRef, RbUserData, rc_get_ptr};
+use base64::engine::general_purpose::STANDARD as BASE_64;
+use base64::Engine as _;
 
 pub struct RbToJson {
     seen: HashMap<*const RbRef, usize>,
@@ -74,7 +76,7 @@ impl RbToJson {
             },
             RbRef::RegexI { content, flags, .. } => {
                 let mut map = Map::new();
-                map.ezset("data-b64", base64::encode(content));
+                map.ezset("data-b64", BASE_64.encode(content));
                 map.ezset("flags", *flags);
                 map.ezset("@", "RegEx");
                 map.ezset("@id", obj_id);
@@ -141,7 +143,7 @@ impl RbToJson {
 
     fn conv_user_data(&mut self, value: &RbUserData) -> Option<Value> {
         let mut map = Map::new();
-        map.ezset("data", base64::encode(&value.data));
+        map.ezset("data", BASE_64.encode(&value.data));
         map.ezset("name", value.name.to_json()?);
         map.ezset("@", "@userdata@");
         map.ezset("@id", self.next_id - 1);
