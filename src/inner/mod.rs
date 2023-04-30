@@ -22,8 +22,8 @@ pub use rb_hash::RbHash;
 pub use rb_misc::{RbClass, RbFields, RbSymbol, RbUserData};
 pub use rb_ref::RbRef;
 pub use rb_object::RbObject;
-pub use serialize::to_writer;
-pub use deserialize::from_reader;
+pub use serialize::{to_writer, RbWriter};
+pub use deserialize::{from_reader, RbReader};
 
 // Re-export error type for convenience
 pub use crate::error::ThurgoodError as Error;

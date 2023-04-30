@@ -39,6 +39,8 @@
 //!   and will ignore extra instance fields. In practice this shouldn't be an issue, and any string
 //!   with a non-standard encoding is stored appropriately, but this is a potential source of difference
 //!   when trying to round-trip data.
+//! * If `RbReader.allow_bin_strings` is set to true the reader will produce `RbRef::StrI` instances
+//!   when the input is a normal string, but not in UTF-8 encoding. This may impact round-trip byte-compatibility.
 //! 
 pub mod consts;
 pub mod error;
@@ -46,41 +48,28 @@ mod rb_type;
 pub use rb_type::RbType;
 pub use error::{ThurgoodError, TResult};
 
-// Uncomment to get JetBrains IDE help, re-comment for build/release/push. (https://github.com/intellij-rust/intellij-rust/issues/4265)
-// pub use std::rc::Rc as RcType; pub mod inner;
-
-pub mod rc {
-    pub use std::rc::Rc as RcType;
-    pub fn rc_get_ptr<T>(reff: &RcType<T>) -> *const T {
-        RcType::as_ptr(reff)
-    }
-    #[path="../inner/mod.rs"]
-    mod inner;
-    pub use inner::*;
-}
-
+pub mod rc;
+/// This module is the same as rc but using Arc instead of Rc for situations where you need thread-safety.
 #[cfg(not(doctest))]
-pub mod arc {
-    pub use std::sync::Arc as RcType;
-    pub fn rc_get_ptr<T>(reff: &RcType<T>) -> *const T {
-        RcType::as_ptr(reff)
-    }
-
-    #[path="../inner/mod.rs"]
-    mod inner;
-    pub use inner::*;
-}
+#[cfg(feature = "arc")]
+pub mod arc;
 
 #[cfg(test)]
 mod tests {
     use std::io;
 
-    use crate::rc::*;
+    use crate::{rc::*, consts::{T_STRING, T_INSTANCE}};
     // use crate::inner::*;
 
     /// Parse a string into an `RbAny`
     fn reader_parse(s: &str) -> RbAny {
         from_reader(io::Cursor::new(s.as_bytes())).expect("Parsing error")
+    }
+
+    fn reader_parse_loose(s: &[u8]) -> RbAny {
+        let mut rd = RbReader::new(io::Cursor::new(s));
+        rd.allow_bin_strings = true;
+        rd.read().expect("Parsing error")
     }
 
     /// Writes `value` to a `Vec<u8>` and returns it.
@@ -205,6 +194,15 @@ mod tests {
         ]);
         assert!(reader_parse(inp).deep_eq(&exp));
         assert_write(&exp, out.as_bytes());
+    }
+
+    #[test]
+    fn invalid_utf8_string_allowed() {
+        let inp = vec![0x04u8, 0x08, T_STRING, 0x08, 0xc3, 0x28, 0x34];
+        let out = vec![0x04u8, 0x08, T_INSTANCE, T_STRING, 0x08, 0xc3, 0x28, 0x34, 0x00];
+        let exp = RbRef::StrI { content: vec![0xc3, 0x28, 0x34], metadata: RbFields::new() }.into_any();
+        assert!(reader_parse_loose(&inp).deep_eq(&exp));
+        assert_write(&exp, &out);
     }
 
     fn escape_str(src: &[u8]) -> String {

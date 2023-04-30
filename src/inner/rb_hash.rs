@@ -8,6 +8,7 @@ pub struct RbHash {
     pub default: Option<Box<RbAny>>,
 }
 impl RbHash {
+    // Construct a new, empty RbHash with no default value.
     pub fn new() -> Self {
         Self {
             map: IndexMap::new(),
@@ -59,6 +60,12 @@ impl Ord for RbHash {
 impl PartialOrd for RbHash {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
+    }
+}
+
+impl Default for RbHash {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

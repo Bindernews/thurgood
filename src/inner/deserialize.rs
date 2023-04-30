@@ -32,6 +32,9 @@ pub struct RbReader<R> {
     symbols: Vec<RbSymbol>,
     objects: Vec<RbAny>,
     sym_e: RbSymbol,
+    /// If true, reads non-utf8 strings (which should be utf-8) as `RbRef::StrI` instead.
+    /// If false, this situation reports an error.
+    pub allow_bin_strings: bool,
 }
 
 impl<R> RbReader<R> where
@@ -46,6 +49,7 @@ impl<R> RbReader<R> where
             objects: vec![],
             // Cached copy of this symbol so we can easily test for string encodings
             sym_e: RbSymbol::from_str("E"),
+            allow_bin_strings: false,
         }
     }
 
@@ -299,7 +303,16 @@ impl<R> RbReader<R> where
     /// Read a string (no specified encoding) from the data stream
     fn read_string(&mut self) -> TResult<RbRef> {
         let data = self.read_len_bytes()?;
-        Ok(RbRef::Str(bytes_to_string(&data)?))
+        match std::str::from_utf8(&data) {
+            Ok(s) => Ok(RbRef::Str(s.to_owned())),
+            Err(e) => {
+                if self.allow_bin_strings {
+                    Ok(RbRef::StrI { content: data, metadata: RbFields::new() })
+                } else {
+                    Err(e.into())
+                }
+            }
+        }
     }
 
     /// Read `count` key-value pairs from the stream, storing them in and returning an RbHash.

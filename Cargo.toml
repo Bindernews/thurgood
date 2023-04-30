@@ -1,6 +1,6 @@
 [package]
 name = "thurgood"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2018"
 description = "Full (de)serialization support for Ruby's Marshal format"
 authors = ["Binder News"]
@@ -14,8 +14,9 @@ categories = ["encoding"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["json"]
+default = ["json", "arc"]
 json = ["serde_json", "serde"]
+arc = []
 
 [dependencies]
 num-bigint = "0.4"

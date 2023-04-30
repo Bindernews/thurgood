@@ -2,9 +2,12 @@ use super::*;
 use std::fmt::{self, Write};
 use std::io;
 
+/// A utility to help in debugging and analysis. This generates a text representation
+/// of the data, although it's currently incomplete.
 struct Dumper<'a, 'b> {
     f: &'a mut fmt::Formatter<'b>,
     max_depth: usize,
+    spaces: String,
 }
 
 impl<'a, 'b: 'a> Dumper<'a, 'b> {
@@ -57,6 +60,24 @@ impl<'a, 'b: 'a> Dumper<'a, 'b> {
                     RbRef::Str(s) => {
                         write!(self.f, "\"{}\"", s)
                     },
+                    RbRef::StrI { content, metadata } => {
+                        {
+                            let spaces_1 = Self::sp_str(&self.spaces, depth + 1);
+                            write!(self.f, "StrI {{\n")?;
+                            write!(self.f, "{}data: \"{}\"\n", spaces_1, Self::escape_string(&content))?;
+                            write!(self.f, "{}meta: ", spaces_1)?;
+                        }
+                        self.print_fields(metadata)?;
+                        let spaces_0 = Self::sp_str(&self.spaces, depth);
+                        write!(self.f, "\n{}}}\n", spaces_0)?;
+                        Ok(())
+                    },
+                    RbRef::BigInt(d) => {
+                        write!(self.f, "{}", d.to_string())
+                    },
+                    RbRef::Float(v) => {
+                        write!(self.f, "{}", v.0)
+                    },
                     _ => {
                         write!(self.f, "todo!()")
                     }
@@ -71,6 +92,25 @@ impl<'a, 'b: 'a> Dumper<'a, 'b> {
         }
         Ok(())
     }
+
+    fn sp_str(base: &str, depth: usize) -> &str {
+        &base[0..(depth * 2)]
+    }
+
+    fn print_fields(&mut self, _fields: &RbFields) -> fmt::Result {
+        write!(self.f, "todo!()")
+    }
+
+    fn escape_string(s: &[u8]) -> String {
+        let esc_buf = s
+            .iter()
+            .flat_map(|b| std::ascii::escape_default(*b))
+            .collect::<Vec<u8>>();
+        std::str::from_utf8(&esc_buf)
+            .expect("escaped string was not utf8")
+            .to_owned()
+    }
+
 }
 
 struct DumperWrap<'a> {
@@ -80,7 +120,11 @@ struct DumperWrap<'a> {
 
 impl<'a> fmt::Display for DumperWrap<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut d = Dumper { f, max_depth: self.max_depth };
+        let mut d = Dumper { 
+            f,
+            max_depth: self.max_depth,
+            spaces: String::from("  ").repeat(self.max_depth * 2),
+        };
         d.dump_rec(self.root, 0)
     }
 }
