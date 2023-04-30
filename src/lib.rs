@@ -49,6 +49,7 @@ pub use rb_type::RbType;
 pub use error::{ThurgoodError, TResult};
 
 pub mod rc;
+
 /// This module is the same as rc but using Arc instead of Rc for situations where you need thread-safety.
 #[cfg(not(doctest))]
 #[cfg(feature = "arc")]
